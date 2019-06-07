@@ -1,0 +1,196 @@
+<html>
+
+<head>
+    <title>Not so simple storage</title>
+    <script src="web3.min.js"></script>
+    <script src="ipfs.js"></script>
+    <script>
+        // Config
+        var ipfsHost = 'localhost',
+            ipfsAPIPort = '5001',
+            ipfsWebPort = '8080',
+            web3Host = 'localhost',
+            web3Port = '8545';
+
+        // IPFS
+        var ipfs = window.IpfsApi(ipfsHost, ipfsAPIPort)
+        ipfs.swarm.peers(function (err, response) {
+            if (err) {
+                console.error(err);
+            } else {
+                console.log("IPFS - connected to " + response.Strings.length + " peers");
+                console.log(response);
+            }
+        });
+
+        // web3
+        var web3 = new Web3();
+        web3.setProvider(new web3.providers.HttpProvider(web3Host + ':' + web3Port));
+        if (!web3.isConnected()) {
+            console.error("Ethereum - no conection to RPC server");
+        } else {
+            console.log("Ethereum - connected to RPC server");
+        }
+
+        var account = web3.eth.accounts[0];
+
+        // JavaScript smart contract interface
+        var abi = [
+            {
+                "constant": true,
+                "inputs": [],
+                "name": "getHash",
+                "outputs": [
+                    {
+                        "name": "x",
+                        "type": "string"
+                    }
+                ],
+                "payable": false,
+                "stateMutability": "view",
+                "type": "function"
+            },
+            {
+                "constant": false,
+                "inputs": [
+                    {
+                        "name": "x",
+                        "type": "string"
+                    }
+                ],
+                "name": "sendHash",
+                "outputs": [],
+                "payable": false,
+                "stateMutability": "nonpayable",
+                "type": "function"
+            }
+        ]
+
+        var bytecode = '6060604052341561000f57600080fd5b6102da8061001e6000396000f30060606040526000357c0100000000000000000000000000000000000000000000000000000000900463ffffffff168063d13319c414610048578063dfb29935146100d657600080fd5b341561005357600080fd5b61005b610133565b6040518080602001828103825283818151815260200191508051906020019080838360005b8381101561009b578082015181840152602081019050610080565b50505050905090810190601f1680156100c85780820380516001836020036101000a031916815260200191505b509250505060405180910390f35b34156100e157600080fd5b610131600480803590602001908201803590602001908080601f016020809104026020016040519081016040528093929190818152602001838380828437820191505050505050919050506101db565b005b61013b6101f5565b60008054600181600116156101000203166002900480601f0160208091040260200160405190810160405280929190818152602001828054600181600116156101000203166002900480156101d15780601f106101a6576101008083540402835291602001916101d1565b820191906000526020600020905b8154815290600101906020018083116101b457829003601f168201915b5050505050905090565b80600090805190602001906101f1929190610209565b5050565b602060405190810160405280600081525090565b828054600181600116156101000203166002900490600052602060002090601f016020900481019282601f1061024a57805160ff1916838001178555610278565b82800160010185558215610278579182015b8281111561027757825182559160200191906001019061025c565b5b5090506102859190610289565b5090565b6102ab91905b808211156102a757600081600090555060010161028f565b5090565b905600a165627a7a723058205ac439337cfbf3900c98782170145d2b3544679e8c1c5b1044370ec29bb8a4820029';
+
+        var deployContractObject = {
+            from: account,
+            gas: 300000,
+            data: bytecode
+        };
+
+        var sendDataObject = {
+            from: account,
+            gas: 300000,
+        };
+
+        var NotSoSimpleStorageContractObject = web3.eth.contract(abi);
+
+        // Globals... who cares...
+        window.ipfs = ipfs;
+        window.web3 = web3;
+        window.account = account;
+        window.deployContractObject = deployContractObject;
+        window.NotSoSimpleStorageContractObject = NotSoSimpleStorageContractObject;
+        window.ipfsDataHost = "http://" + ipfsHost + ':' + ipfsWebPort + "/ipfs";
+
+        // Functions
+        function getBalance() {
+            window.web3.eth.getBalance(window.account, function (err, balance) {
+                console.log(parseFloat(window.web3.fromWei(balance, 'ether')));
+            });
+        }
+
+        function deployContract() {
+            window.currentIPFSHash = null;
+            window.currentData = null;
+
+            if (window.contractInstance) {
+                console.error('Contract already deployed. Identifier: ', window.contractAddress);
+                return false;
+            }
+
+            window.NotSoSimpleStorageContractObject.new(window.deployContractObject, function (err, contract) {
+                if (err) {
+                    console.error('Error deploying contract: ', err);
+                } else if (contract.address) {
+                    var contractAddress = contract.address;
+                    window.contractAddress = contractAddress;
+                    window.contractInstance = window.NotSoSimpleStorageContractObject.at(contractAddress);
+                    console.log('Contract deployed at address ', contractAddress);
+                } else if (contract.transactionHash) {
+                    console.log("Waiting for contract to be deployed... Contract's transaction hash: ", contract.transactionHash);
+                } else {
+                    console.error('Unknown error deploying contract');
+                }
+            });
+        }
+
+        function sendTransaction(data) {
+            if (!window.contractInstance) {
+                console.error('Make sure you deploy your contract first');
+                return;
+            }
+
+            if (window.currentData == data) {
+                console.error("Why would you override your contract's data with the same data, you dummy?");
+                return;
+            }
+
+            window.contractInstance.set.sendTransaction(data, window.sendDataObject, function (err, result) {
+                if (err) {
+                    console.error('Error sending data: ', err);
+                } else {
+                    window.currentData = data;
+                    console.log('Successfully sent data. Transaction hash: ', result);
+                }
+            });
+        }
+
+        function getData() {
+            if (!window.contractInstance) {
+                console.error('Make sure you deploy your contract first');
+                return;
+            }
+
+            window.contractInstance.get.call(function (err, result) {
+                if (err) {
+                    console.error('Error getting data: ', err);
+                } else if (result) {
+                    if (window.currentIPFSHash == result) {
+                        console.log("New data hasn't been mined yet. This is your current data: ", result);
+                        return;
+                    }
+
+                    window.currentIPFSHash = result
+                    var imageURL = window.ipfsDataHost + "/" + result;
+                    console.log('File: ', result);
+                    console.log(imageURL);
+                } else {
+                    console.error('No data. Transaction not mined yet?');
+                }
+            });
+        }
+
+        function addFile(url) {
+            window.ipfs.add(url, function (err, result) {
+                if (err) {
+                    console.error('Error sending file: ', err);
+                    return null;
+                } else if (result && result[0] && result[0].Hash) {
+                    var imageURL = window.ipfsDataHost + "/" + result[0].Hash;
+                    console.log('File: ', result[0].Hash);
+                    console.log(imageURL);
+                } else {
+                    console.error('No file for you...');
+                    return null;
+                }
+            });
+        }
+    </script>
+</head>
+
+<body>
+    <p>Open the JavaScript console to use the application.</p>
+    <ul>Usage:
+        <li><code>deployContract()<code>: deploy Ethereum contract</li>
+        <li><code>addFile(URL)<code>: save a file to IPFS</li>
+        <li><code>sendTransaction(IPFSHash)<code>: send a transaction to the Ethereum contract</li>
+        <li><code>getData()<code>: get the latest value (IPFS hash) stored in the Ethereum contract</li>
+    </ul>
+</body>
